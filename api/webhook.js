@@ -302,7 +302,22 @@ export async function POST(request) {
       );
       return json(200, { ok: true });
     }
-
+    if (text === "/models") {
+      const r = await authed("/v1/models", (t) => ({
+        headers: { authorization: `Bearer ${t}`, accept: "application/json" },
+      }));
+      const d = await r.json().catch(() => ({}));
+      await sendText(chatId, (d.data || []).map((m) => m.id).join("\n") || JSON.stringify(d));
+      return json(200, { ok: true });
+    }
+    if (text === "/balance") {
+      const r = await authed("/v1/balance", (t) => ({
+        headers: { authorization: `Bearer ${t}`, accept: "application/json" },
+      }));
+      const d = await r.json().catch(() => ({}));
+      await sendText(chatId, JSON.stringify(d).slice(0, 1500));
+      return json(200, { ok: true });
+    }
     let answer;
     if (message.photo?.length) {
       await sendText(chatId, "Получил скриншот. Анализирую…");

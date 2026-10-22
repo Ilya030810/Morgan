@@ -84,8 +84,6 @@ async function geminiOnce(model, parts) {
 // при 400/403/404 — сразу следующая модель.
 
 async function gemini(parts) {
-
-async function gemini(parts) {
   const primary = process.env.GEMINI_MODEL || DEFAULT_MODEL;
   const fallbacks = (
     process.env.GEMINI_FALLBACK_MODELS ||

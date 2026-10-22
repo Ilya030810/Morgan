@@ -1,6 +1,7 @@
 export const maxDuration = 60;
 
 const MAX_TELEGRAM_TEXT = 3900;
+const DEFAULT_MODEL = "gemini-3.8-flash";
 const SYSTEM_PROMPT = `
 Ты — учебный помощник по школьным заданиям.
 Внимательно распознай условие и варианты ответа. Реши задание самостоятельно.
@@ -13,6 +14,8 @@ const SYSTEM_PROMPT = `
 Объяснение: ...
 Уверенность: высокая/средняя/низкая.
 `;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function json(status, body) {
   return new Response(JSON.stringify(body), {
@@ -47,8 +50,7 @@ async function sendText(chatId, text) {
   }
 }
 
-async function gemini(parts) {
-  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+async function geminiOnce(model, parts) {
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
     {
@@ -62,17 +64,48 @@ async function gemini(parts) {
         contents: [{ role: "user", parts }],
         generationConfig: { temperature: 0.2, maxOutputTokens: 4096 },
       }),
+      signal: AbortSignal.timeout(20000),
     }
   );
   const data = await response.json();
   if (!response.ok) {
-    throw new Error(`Gemini request failed: ${JSON.stringify(data)}`);
+    const err = new Error(`Gemini ${model} failed: ${JSON.stringify(data)}`);
+    err.status = response.status;
+    throw err;
   }
   const text = data.candidates?.[0]?.content?.parts
     ?.map((p) => p.text || "")
     .join("\n")
     .trim();
   return text || "Gemini не вернул текстовый ответ.";
+}
+
+// Основная модель + запасные. При 429/5xx/таймауте — одна повторная попытка,
+// при 400/403/404 — сразу следующая модель.
+async function gemini(parts) {
+  const primary = process.env.GEMINI_MODEL || DEFAULT_MODEL;
+  const fallbacks = (process.env.GEMINI_FALLBACK_MODELS || "gemini-flash-latest,gemini-3.5-flash")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const models = [...new Set([primary, ...fallbacks])];
+
+  let lastError;
+  for (const model of models) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await geminiOnce(model, parts);
+      } catch (error) {
+        lastError = error;
+        console.error(`Gemini ${model} attempt ${attempt + 1}:`, error.message);
+        const retryable =
+          error.name === "TimeoutError" || [429, 500, 503, 504].includes(error.status);
+        if (!retryable) break;
+        await sleep(1000);
+      }
+    }
+  }
+  throw lastError;
 }
 
 async function photoPart(fileId) {
@@ -124,7 +157,11 @@ export async function POST(request) {
     .map((x) => x.trim())
     .filter(Boolean);
   if (allowList.length && !allowList.includes(userId)) {
-    await sendText(chatId, "Этот бот пока доступен только разрешённым пользователям.");
+    try {
+      await sendText(chatId, "Этот бот пока доступен только разрешённым пользователям.");
+    } catch (e) {
+      console.error("Telegram reply error", e);
+    }
     return json(200, { ok: true });
   }
 
@@ -146,7 +183,7 @@ export async function POST(request) {
     if (text === "/status") {
       await sendText(
         chatId,
-        `Webhook работает. Модель: ${process.env.GEMINI_MODEL || "gemini-2.5-flash"}. Автоматический доступ к МЭШ ещё не подключён.`
+        `Webhook работает. Модель: ${process.env.GEMINI_MODEL || DEFAULT_MODEL}. Автоматический доступ к МЭШ ещё не подключён.`
       );
       return json(200, { ok: true });
     }
@@ -171,9 +208,12 @@ export async function POST(request) {
     await sendText(chatId, answer);
   } catch (error) {
     console.error("Webhook handler error", error);
-    const details = String(error?.message || error).slice(0, 600);
+    const debug = process.env.DEBUG_ERRORS === "1";
+    const reply = debug
+      ? `Не удалось обработать задание.\n\nПричина: ${String(error?.message || error).slice(0, 600)}`
+      : "Не удалось обработать задание. Попробуй ещё раз чуть позже.";
     try {
-      await sendText(chatId, `Не удалось обработать задание.\n\nПричина: ${details}`);
+      await sendText(chatId, reply);
     } catch (sendError) {
       console.error("Telegram reply error", sendError);
     }
@@ -181,4 +221,3 @@ export async function POST(request) {
 
   return json(200, { ok: true });
 }
-

@@ -323,7 +323,7 @@ export async function POST(request) {
     }
 
     await sendText(chatId, answer);
-  } catch (error) {
+    } catch (error) {
     console.error("Webhook handler error", error);
     const debug = process.env.DEBUG_ERRORS === "1";
     const reply = debug
@@ -337,9 +337,6 @@ export async function POST(request) {
   } finally {
     if (uploadedId) await deleteFile(uploadedId);
   }
-
-  return json(200, { ok: true });
-}
 
   return json(200, { ok: true });
 }

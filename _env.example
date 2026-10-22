@@ -1,0 +1,8 @@
+TELEGRAM_BOT_TOKEN=
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-3.8-flash
+GEMINI_FALLBACK_MODELS=gemini-flash-latest,gemini-3.5-flash
+TELEGRAM_WEBHOOK_SECRET=
+ALLOWED_TELEGRAM_USER_IDS=
+# 1 = присылать в чат текст ошибки (только для отладки), по умолчанию выключено
+DEBUG_ERRORS=

@@ -82,13 +82,44 @@ async function geminiOnce(model, parts) {
 
 // Основная модель + запасные. При 429/5xx/таймауте — одна повторная попытка,
 // при 400/403/404 — сразу следующая модель.
+
 async function gemini(parts) {
   const primary = process.env.GEMINI_MODEL || DEFAULT_MODEL;
-  process.env.GEMINI_FALLBACK_MODELS || "gemini-flash-latest,gemini-3.6-flash"
+
+  const fallbacks = (
+    process.env.GEMINI_FALLBACK_MODELS ||
+    "gemini-flash-latest,gemini-3.6-flash"
+  )
     .split(",")
     .map((x) => x.trim())
     .filter(Boolean);
+
   const models = [...new Set([primary, ...fallbacks])];
+
+  let lastError;
+  for (const model of models) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await geminiOnce(model, parts);
+      } catch (error) {
+        lastError = error;
+        console.error(
+          `Gemini ${model} attempt ${attempt + 1}:`,
+          error.message
+        );
+
+        const retryable =
+          error.name === "TimeoutError" ||
+          [429, 500, 503, 504].includes(error.status);
+
+        if (!retryable) break;
+        await sleep(1000);
+      }
+    }
+  }
+
+  throw lastError;
+}
 
   let lastError;
   for (const model of models) {

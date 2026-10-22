@@ -171,8 +171,9 @@ export async function POST(request) {
     await sendText(chatId, answer);
   } catch (error) {
     console.error("Webhook handler error", error);
+    const details = String(error?.message || error).slice(0, 600);
     try {
-      await sendText(chatId, "Не удалось обработать задание. Проверь настройки API и попробуй снова.");
+      await sendText(chatId, `Не удалось обработать задание.\n\nПричина: ${details}`);
     } catch (sendError) {
       console.error("Telegram reply error", sendError);
     }
@@ -180,3 +181,4 @@ export async function POST(request) {
 
   return json(200, { ok: true });
 }
+

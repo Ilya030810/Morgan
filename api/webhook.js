@@ -84,8 +84,9 @@ async function geminiOnce(model, parts) {
 // при 400/403/404 — сразу следующая модель.
 
 async function gemini(parts) {
-  const primary = process.env.GEMINI_MODEL || DEFAULT_MODEL;
 
+async function gemini(parts) {
+  const primary = process.env.GEMINI_MODEL || DEFAULT_MODEL;
   const fallbacks = (
     process.env.GEMINI_FALLBACK_MODELS ||
     "gemini-flash-latest,gemini-3.6-flash"
@@ -95,8 +96,8 @@ async function gemini(parts) {
     .filter(Boolean);
 
   const models = [...new Set([primary, ...fallbacks])];
-
   let lastError;
+
   for (const model of models) {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
@@ -118,25 +119,7 @@ async function gemini(parts) {
     }
   }
 
-  throw lastError;
-}
-
-  let lastError;
-  for (const model of models) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        return await geminiOnce(model, parts);
-      } catch (error) {
-        lastError = error;
-        console.error(`Gemini ${model} attempt ${attempt + 1}:`, error.message);
-        const retryable =
-          error.name === "TimeoutError" || [429, 500, 503, 504].includes(error.status);
-        if (!retryable) break;
-        await sleep(1000);
-      }
-    }
-  }
-  throw lastError;
+  throw lastError || new Error("All Gemini models failed");
 }
 
 async function photoPart(fileId) {

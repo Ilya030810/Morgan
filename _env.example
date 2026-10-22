@@ -1,8 +1,17 @@
 TELEGRAM_BOT_TOKEN=
-GEMINI_API_KEY=
-GEMINI_MODEL=gemini-3.8-flash
-GEMINI_FALLBACK_MODELS=gemini-flash-latest,gemini-3.5-flash
 TELEGRAM_WEBHOOK_SECRET=
 ALLOWED_TELEGRAM_USER_IDS=
-# 1 = присылать в чат текст ошибки (только для отладки), по умолчанию выключено
+
+# GigaChat: "Ключ авторизации" (Authorization key) со страницы developers.sber.ru
+GIGACHAT_AUTH_KEY=
+GIGACHAT_SCOPE=GIGACHAT_API_PERS
+GIGACHAT_MODEL=GigaChat-3-Ultra
+# необязательно: запасные модели через запятую
+GIGACHAT_FALLBACK_MODELS=
+# необязательно, значения по умолчанию:
+# GIGACHAT_BASE_URL=https://api.giga.chat
+# GIGACHAT_AUTH_URL=https://ngw.devices.sberbank.ru:9443/api/v2/oauth
+# GIGACHAT_CA_PATH=certs/russian_trusted_root_ca.pem
+
+# 1 = присылать в чат текст ошибки (только для отладки)
 DEBUG_ERRORS=

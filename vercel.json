@@ -1,7 +1,8 @@
 {
   "functions": {
     "api/webhook.js": {
-      "maxDuration": 60
+      "maxDuration": 60,
+      "includeFiles": "certs/**"
     }
   }
 }

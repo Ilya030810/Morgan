@@ -152,7 +152,11 @@ export function GET() {
 
 export async function POST(request) {
   const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
-  if (secret && request.headers.get("x-telegram-bot-api-secret-token") !== secret) {
+  const receivedSecret =
+  request.headers?.["x-telegram-bot-api-secret-token"] ??
+  request.headers?.get?.("x-telegram-bot-api-secret-token");
+
+if (secret && receivedSecret !== secret) {
     return json(403, { ok: false, error: "Forbidden" });
   }
   if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.GEMINI_API_KEY) {
@@ -212,7 +216,9 @@ export async function POST(request) {
       await sendText(chatId, "Получил скриншот. Анализирую…");
       const largest = message.photo[message.photo.length - 1];
       parts = [
-        { text: "Реши задание или задания на изображении. Если их несколько, пронумеруй ответы." },
+        {
+  text: "Реши задание или задания на изображении. Верни только краткие ответы и уверенность для каждого. Без решения и объяснения. Если условие нечитаемо, данных недостаточно или ответ неоднозначен, не угадывай: напиши «Ответ: не удалось определить» и «Уверенность: не уверен». Если заданий несколько, пронумеруй ответы."
+},
         await photoPart(largest.file_id),
       ];
     } else if (text && !text.startsWith("/")) {

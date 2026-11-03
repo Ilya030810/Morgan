@@ -7,7 +7,9 @@ on:
 
 jobs:
   run:
-          - name: Call mail endpoint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call mail endpoint
         run: |
           code=$(curl -sS -m 70 -o out.txt -w "%{http_code}" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \

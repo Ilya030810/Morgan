@@ -3,10 +3,13 @@
     "api/webhook.js": {
       "maxDuration": 60,
       "includeFiles": "certs/**"
+    },
+    "api/mail.js": {
+      "maxDuration": 60,
+      "includeFiles": "certs/**"
     }
-  }
+  },
+  "crons": [
+    { "path": "/api/mail", "schedule": "0 6 * * *" }
+  ]
 }
-"functions": {
-  "api/mail.js": { "maxDuration": 60, "includeFiles": "certs/**" }
-},
-"crons": [{ "path": "/api/mail", "schedule": "0 6 * * *" }]

@@ -1,6 +1,6 @@
 import { gigaChat } from "../lib/gigachat.js";
 import { runMail } from "../lib/mail.js";
-import { buildSystem, pick, MAIL_INTRO, MAIL_TEST_INTRO, WELCOME, MODE_MSG } from "../lib/persona.js";
+import { buildSystem, pick, MAIL_INTRO, MAIL_TEST_INTRO, WELCOME, MODE_MSG, CAR_FOOTER } from "../lib/persona.js";
 import { getVal, setVal, persistent } from "../lib/store.js";
 
 export const maxDuration = 60;
@@ -173,7 +173,7 @@ export async function POST(request) {
       const car = mode === "car" ? await getVal(carKey(chatId)) : null;
       const history = await loadHistory(chatId);
       const reply = await gigaChat(buildSystem(mode, car), composeUser(history, text), 1200);
-      await sendText(chatId, reply);
+      await sendText(chatId, mode === "car" ? `${reply}\n\n${CAR_FOOTER}` : reply);
       history.push({ r: "u", t: text.slice(0, 800) });
       history.push({ r: "a", t: String(reply).slice(0, 700) });
       await saveHistory(chatId, history);

@@ -1,64 +1,231 @@
-# Telegram + GigaChat для ЦДЗ МЭШ — Vercel webhook
+# Morgan
 
-Serverless webhook для Vercel. Бот принимает текст и фотографии теста, отправляет их в GigaChat и возвращает краткий ответ и уверенность.
+Morgan — Telegram-ассистент на Vercel с GigaChat и автоматической сортировкой Gmail. Проект развивается постепенно: существующие интеграции сохраняются, новые возможности добавляются отдельными модулями.
 
-## Что пока не реализовано
-Вход в МЭШ, чтение ЦДЗ, отправка ответов в МЭШ, база истории. Пароли и cookies МЭШ в код не помещай.
+## Что умеет сейчас
 
-## Структура
+### Telegram + GigaChat
+
+- Принимает текстовые сообщения через Telegram webhook.
+- Передаёт обычные текстовые вопросы в GigaChat.
+- Поддерживает команды:
+  - `/start`, `/help` — справка;
+  - `/status` — состояние webhook и режим почты;
+  - `/mail`, `/почта` — запустить разбор Gmail;
+  - `/mail тест` — тестовый разбор без изменений в почте.
+
+Доступ к боту ограничен списком Telegram ID из `ALLOWED_TELEGRAM_USER_IDS`.
+
+### Сортировка Gmail
+
+Morgan анализирует входящие письма за заданный период и предлагает одно из действий:
+
+- пометить категорией;
+- архивировать;
+- отправить в корзину;
+- оставить на ручную проверку.
+
+**Morgan не читает содержимое писем.** Для классификации запрашиваются только метаданные Gmail:
+
+- отправитель (`From`);
+- тема (`Subject`);
+- технические заголовки `List-Unsubscribe` и `Precedence`;
+- системные метки Gmail, по которым определяется тип рассылки.
+
+Тело письма, вложения и содержимое переписки не запрашиваются. GigaChat получает только сокращённый список отправителей, тем и признак рассылки. Тема и отправитель рассматриваются как данные, а не как инструкции для модели.
+
+Перед обращением к GigaChat применяются простые правила:
+
+- отправители из `MAIL_KEEP_SENDERS` защищены от автоматических действий;
+- письма из категории Gmail «Промоакции» отправляются в корзину;
+- категории «Соцсети» и «Форумы» архивируются;
+- остальные письма классифицирует GigaChat.
+
+Дополнительная защита классификатора:
+
+- решение GigaChat отправить письмо в корзину принимается только при наличии признака рассылки;
+- если модель не уверена, вернула некорректный ответ или неизвестную категорию, письмо отправляется на проверку;
+- категории для меток ограничены списком `MAIL_LABELS`.
+
+При применении решений Morgan создаёт метку `morgan-done`, чтобы повторно не разбирать уже обработанные письма, а для сомнительных решений использует метку `Morgan/Проверить`.
+
+### Автоматический запуск
+
+В `vercel.json` настроен Vercel Cron: ежедневно в 06:00 UTC вызывается `/api/mail`. Запуск защищён переменной `CRON_SECRET`. Реальные изменения в Gmail выполняются только при `MAIL_LIVE=1`.
+
+### МЭШ
+
+В репозитории есть экспериментальный модуль OAuth 2.0 с PKCE:
+
+- генерация verifier, challenge и state;
+- построение ссылки авторизации;
+- разбор redirect URL;
+- обмен authorization code на токены.
+
+Это заготовка авторизации, а не готовая интеграция с дневником: чтение заданий, оценок и расписания, а также отправка ответов пока не реализованы.
+
+## Структура проекта
+
+```text
+api/
+  webhook.js       Telegram webhook: команды и запросы к GigaChat
+  mail.js          endpoint для запуска сортировки по Vercel Cron
+  mes-auth.js      экспериментальная OAuth 2.0 / PKCE-авторизация МЭШ
+  test-login.js    локальная проверка OAuth-авторизации МЭШ
+
+lib/
+  gigachat.js      клиент GigaChat: авторизация, запросы, повторы и fallback-модели
+  mail.js          Gmail API, получение метаданных, классификация и применение действий
+
+certs/
+  russian_trusted_root_ca.pem  корневой сертификат НУЦ Минцифры для TLS GigaChat
+
+webhook.js         прежний/альтернативный обработчик; основной endpoint — api/webhook.js
+vercel.json        настройки Vercel Functions и расписания Cron
+package.json       зависимости и команда разработки
 ```
-api/webhook.js   обработчик (экспорт POST/GET, Request/Response)
-certs/           корневой сертификат НУЦ Минцифры (нужен для api.giga.chat / ngw)
-vercel.json      maxDuration = 60, includeFiles = certs/**
-package.json     "type": "module", зависимость undici
+
+## Требования
+
+- Node.js 20 или новее.
+- Аккаунт Vercel и подключённый GitHub-репозиторий.
+- Telegram-бот, созданный через [@BotFather](https://t.me/BotFather).
+- Ключ API GigaChat из [кабинета разработчика Сбера](https://developers.sber.ru/).
+- Для сортировки почты: проект Google Cloud с включённым Gmail API и OAuth-данные с refresh token.
+- Для МЭШ OAuth: параметры OAuth-клиента МЭШ.
+
+## Настройка
+
+### 1. Установка
+
+```bash
+npm install
 ```
-`_env.example` → `.env.example`, `_gitignore` → `.gitignore`.
 
-## 1. Ключи
-- Бот у `@BotFather` → токен.
-- GigaChat: на странице developers.sber.ru → «Настройка API» → «Получить ключ». Нужен **Ключ авторизации** (Authorization key), он сохраняется в `GIGACHAT_AUTH_KEY`. Access token бот получает сам и обновляет каждые ~30 минут.
-- Секрет webhook: `[guid]::NewGuid().ToString("N")`.
+Локальный запуск через Vercel CLI:
 
-## 2. Сертификат Минцифры
-Серверы Сбера используют сертификат НУЦ Минцифры, которого нет в доверенных у Node на Vercel. Скачай корневой сертификат с https://www.gosuslugi.ru/crt (PEM), положи как `certs/russian_trusted_root_ca.pem` и закоммить. Без него запросы падают с ошибкой вида `unable to verify the first certificate` или `fetch failed`. Отключать проверку TLS не нужно.
+```bash
+npx vercel dev
+```
 
-## 3. Vercel (Framework preset: Other)
-| Переменная | Значение |
+### 2. Переменные окружения
+
+Добавь переменные в Vercel → Project → Settings → Environment Variables. Секреты не записывай в исходники и не коммить в Git.
+
+#### Telegram
+
+| Переменная | Назначение |
 |---|---|
-| `TELEGRAM_BOT_TOKEN` | токен BotFather |
-| `TELEGRAM_WEBHOOK_SECRET` | тот же секрет, что в `setWebhook` |
-| `ALLOWED_TELEGRAM_USER_IDS` | ID Telegram через запятую (обязательно, иначе бот открыт всем) |
-| `GIGACHAT_AUTH_KEY` | ключ авторизации |
-| `GIGACHAT_SCOPE` | `GIGACHAT_API_PERS` (физлицо, freemium) |
-| `GIGACHAT_MODEL` | `GigaChat-3-Ultra` |
-| `GIGACHAT_FALLBACK_MODELS` | необязательно, запасные модели |
-| `DEBUG_ERRORS` | `1` только для отладки |
+| `TELEGRAM_BOT_TOKEN` | Токен бота от BotFather |
+| `TELEGRAM_WEBHOOK_SECRET` | Секрет Telegram webhook |
+| `ALLOWED_TELEGRAM_USER_IDS` | Разрешённые Telegram user ID через запятую |
 
-После изменения переменных нужен **Redeploy**. Список доступных ключу моделей:
-```powershell
-# сначала получи access token (см. документацию), затем:
-Invoke-RestMethod "https://api.giga.chat/v1/models" -Headers @{ Authorization = "Bearer $ACCESS_TOKEN" }
-```
+Список `ALLOWED_TELEGRAM_USER_IDS` обязателен: если он пустой, webhook не будет отвечать пользователям.
 
-## 4. Webhook
+#### GigaChat
+
+| Переменная | Назначение |
+|---|---|
+| `GIGACHAT_AUTH_KEY` | Ключ авторизации GigaChat |
+| `GIGACHAT_SCOPE` | Scope; по умолчанию `GIGACHAT_API_PERS` |
+| `GIGACHAT_MODEL` | Основная модель; по умолчанию `GigaChat-3-Ultra` |
+| `GIGACHAT_FALLBACK_MODELS` | Необязательные запасные модели через запятую |
+| `GIGACHAT_BASE_URL` | Необязательно; базовый URL API |
+| `GIGACHAT_AUTH_URL` | Необязательно; URL выдачи токена |
+| `GIGACHAT_CA_PATH` | Необязательно; путь к CA-сертификату |
+| `DEBUG_ERRORS` | `1` — отправлять текст ошибки в Telegram при отладке |
+
+Клиент GigaChat получает access token автоматически и обновляет его по мере необходимости. Для TLS используется сертификат `certs/russian_trusted_root_ca.pem`, если файл присутствует.
+
+#### Gmail
+
+| Переменная | Назначение |
+|---|---|
+| `GOOGLE_CLIENT_ID` | OAuth Client ID Google |
+| `GOOGLE_CLIENT_SECRET` | OAuth Client Secret Google |
+| `GOOGLE_REFRESH_TOKEN` | Refresh token с доступом к Gmail |
+| `MAIL_LIVE` | Только значение `1` разрешает применять изменения |
+| `MAIL_DAYS` | Глубина поиска в днях; по умолчанию `7` |
+| `MAIL_BATCH` | Максимум писем за один запуск; по умолчанию `30` |
+| `MAIL_LABELS` | Категории для Gmail-меток через запятую |
+| `MAIL_KEEP_SENDERS` | Фрагменты адресов/имён отправителей, которые нужно защищать |
+| `MAIL_NOTIFY_CHAT_ID` | Необязательный Telegram chat ID для отчётов Cron |
+
+По умолчанию список категорий: `Учёба,Банки,Покупки,Работа,Госуслуги,Важное`.
+
+#### Vercel Cron
+
+| Переменная | Назначение |
+|---|---|
+| `CRON_SECRET` | Секрет для авторизации вызова `/api/mail` |
+
+#### МЭШ OAuth (экспериментально)
+
+| Переменная | Назначение |
+|---|---|
+| `MES_CLIENT_ID` | OAuth Client ID |
+| `MES_CLIENT_SECRET` | Необязательный Client Secret, если требуется сервером |
+| `MES_TOKEN_URL` | URL обмена authorization code на токен |
+
+После изменения переменных окружения выполни Redeploy в Vercel.
+
+### 3. Сертификат GigaChat
+
+В репозитории предусмотрен файл `certs/russian_trusted_root_ca.pem`. Если нужно получить или обновить корневой сертификат НУЦ Минцифры, используй официальный источник: https://www.gosuslugi.ru/crt
+
+Не отключай проверку TLS ради исправления ошибок сертификата.
+
+### 4. Подключение Telegram webhook
+
+Подставь токен, секрет и домен своего Vercel-проекта:
+
 ```powershell
 $TOKEN  = Read-Host "Токен бота"
-$SECRET = Read-Host "secret_token"
-$URL    = "https://ТВОЙ_ДОМЕН.vercel.app/api/webhook"
-$body = @{ url = $URL; secret_token = $SECRET; allowed_updates = @("message") } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri "https://api.telegram.org/bot$TOKEN/setWebhook" -ContentType "application/json" -Body $body
-(Invoke-RestMethod "https://api.telegram.org/bot$TOKEN/getWebhookInfo").result | Format-List
+$SECRET = Read-Host "Секрет webhook"
+$URL    = "https://ТВОЙ-ДОМЕН.vercel.app/api/webhook"
+
+$body = @{
+  url = $URL
+  secret_token = $SECRET
+  allowed_updates = @("message")
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post `
+  -Uri "https://api.telegram.org/bot$TOKEN/setWebhook" `
+  -ContentType "application/json" `
+  -Body $body
+
+Invoke-RestMethod "https://api.telegram.org/bot$TOKEN/getWebhookInfo"
 ```
 
-## 5. Проверка
-`/status`, затем текст задания, затем фото. При проблемах: Vercel → Logs и `DEBUG_ERRORS=1`.
+В текущем обработчике проверка секрета выполняется, если `TELEGRAM_WEBHOOK_SECRET` задан. Поэтому обязательно задай эту переменную и используй тот же секрет при вызове `setWebhook`.
 
-## Типичные ошибки
-- `fetch failed` / `unable to verify the first certificate`: нет `certs/russian_trusted_root_ca.pem` или он не попал в деплой.
-- `auth failed: 401/400`: неверный `GIGACHAT_AUTH_KEY` или `GIGACHAT_SCOPE`.
-- `429`: исчерпан лимит бесплатных токенов.
-- Ошибка на фото: выбранная модель может не принимать изображения. Укажи другую в `GIGACHAT_MODEL` или `GIGACHAT_FALLBACK_MODELS`.
-- Таймауты: единственный запрос ограничен 25 с, функция 60 с.
+## Использование
 
-## Безопасность
-Если токен бота, секрет или ключ GigaChat попали в чат или репозиторий: перевыпусти токен (`/revoke` у @BotFather), сгенерируй новый secret_token и новый ключ GigaChat, обнови Vercel и заново вызови `setWebhook`.
+В Telegram:
+
+```text
+/start       показать справку
+/status      проверить webhook и режим почты
+/mail тест   разобрать письма без изменений
+/mail        разобрать письма; изменения возможны только при MAIL_LIVE=1
+```
+
+Для первого запуска используй только `/mail тест`. Сверь предложенные действия, особенно письма, отправленные в корзину. Не включай `MAIL_LIVE=1`, пока не убедишься, что правила и классификация работают ожидаемо.
+
+Если `MAIL_LIVE` не равно `1`, обычная команда `/mail` тоже работает в тестовом режиме. Vercel Cron вызывает тот же механизм; без `MAIL_LIVE=1` он не меняет письма.
+
+## Безопасность и ограничения
+
+- Morgan не загружает и не анализирует тело писем или вложения. Классификация выполняется по отправителю, теме, системным меткам и нескольким техническим заголовкам.
+- Не отправляй в чат и не коммить Telegram token, Google OAuth secrets, refresh token, GigaChat key, Cron secret или OAuth-данные МЭШ.
+- Ограничивай доступ через `ALLOWED_TELEGRAM_USER_IDS`.
+- Установи `TELEGRAM_WEBHOOK_SECRET` и `CRON_SECRET`.
+- Сортировка по метаданным не гарантирует правильного определения назначения письма. Перед включением боевого режима проверяй отчёты и список защищённых отправителей.
+- Не добавляй финансовые, государственные и security-уведомления в автоматическое удаление без отдельной проверки.
+- `/mail тест` не применяет изменения к Gmail. Боевой режим включается только переменной `MAIL_LIVE=1`.
+- Если секрет или токен попал в публичный доступ, отзови его у соответствующего сервиса, выпусти новый и обнови переменные Vercel.
+
+## Текущий статус
+
+Morgan уже умеет отвечать через Telegram/GigaChat и сортировать Gmail по метаданным с тестовым режимом и ежедневным Cron. Интеграция с МЭШ пока находится на этапе OAuth-заготовки. Проект не следует считать завершённым или полностью автономным: новые действия нужно добавлять с проверками и безопасными режимами по умолчанию.

@@ -1,0 +1,16 @@
+name: mail-sort
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # каждые 30 минут
+  workflow_dispatch:          # кнопка «Run workflow» для ручного запуска
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call mail endpoint
+        run: |
+          curl -fsS -m 70 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://morgan-mesh-bot.vercel.app/api/mail

@@ -6,3 +6,7 @@
     }
   }
 }
+"functions": {
+  "api/mail.js": { "maxDuration": 60, "includeFiles": "certs/**" }
+},
+"crons": [{ "path": "/api/mail", "schedule": "0 6 * * *" }]

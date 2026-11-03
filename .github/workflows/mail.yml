@@ -7,10 +7,11 @@ on:
 
 jobs:
   run:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Call mail endpoint
+          - name: Call mail endpoint
         run: |
-          curl -fsS -m 70 \
+          code=$(curl -sS -m 70 -o out.txt -w "%{http_code}" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            https://morgan-mesh-bot.vercel.app/api/mail
+            https://morgan-mesh-bot.vercel.app/api/mail)
+          echo "HTTP $code"
+          cat out.txt
+          test "$code" = "200"

@@ -75,7 +75,7 @@ async function setMode(chatId, mode) {
 function composeUser(history, text) {
   if (!history.length) return text;
   const log = history
-    .map((h) => `${h.r === "u" ? "Пользователь" : "Morgan"}: ${h.t}`)
+    .map((h) => `${h.r === "u" ? "Пользователь" : "Куруми"}: ${h.t}`)
     .join("\n");
   return `Предыдущий диалог:\n${log}\n\nНовое сообщение пользователя:\n${text}`;
 }
@@ -168,7 +168,7 @@ export async function POST(request) {
     } else if (cmd.startsWith("/")) {
       await sendText(chatId, "Не знаю такой команды. Список: /help");
     } else {
-      // Обычное сообщение: отвечаем в текущем режиме с характером Morgan.
+      // Обычное сообщение: отвечаем в текущем режиме с характером Куруми.
       const mode = (await getVal(modeKey(chatId))) || "help";
       const car = mode === "car" ? await getVal(carKey(chatId)) : null;
       const history = await loadHistory(chatId);
@@ -192,4 +192,4 @@ export async function POST(request) {
   }
 
   return json(200, { ok: true });
-  }
+}

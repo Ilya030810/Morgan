@@ -1,6 +1,6 @@
 import { gigaChat } from "../lib/gigachat.js";
 import { runMail } from "../lib/mail.js";
-import { buildSystem, pick, MAIL_INTRO, MAIL_TEST_INTRO, WELCOME, MODE_MSG, CAR_FOOTER } from "../lib/persona.js";
+import { buildSystem, pick, MAIL_INTRO, MAIL_TEST_INTRO, WELCOME, MODE_MSG, CAR_FOOTER, carReady } from "../lib/persona.js";
 import { getVal, setVal, persistent } from "../lib/store.js";
 
 export const maxDuration = 60;
@@ -131,7 +131,8 @@ export async function POST(request) {
       await sendText(chatId, MODE_MSG.help);
     } else if (text === BTN.car) {
       await setMode(chatId, "car");
-      await sendText(chatId, MODE_MSG.car);
+      const savedCar = await getVal(carKey(chatId));
+      await sendText(chatId, savedCar ? carReady(savedCar) : MODE_MSG.car);
     } else if (text === BTN.mail || text === BTN.mailTest || cmd === "/mail" || cmd === "/почта") {
       const dry = text === BTN.mailTest || args.some((a) => /^(тест|test|dry)$/i.test(a));
       await sendText(chatId, pick(dry ? MAIL_TEST_INTRO : MAIL_INTRO));
@@ -192,4 +193,4 @@ export async function POST(request) {
   }
 
   return json(200, { ok: true });
-}
+                     }

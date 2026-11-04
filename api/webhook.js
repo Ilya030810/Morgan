@@ -1,7 +1,8 @@
 import { gigaChat } from "../lib/gigachat.js";
 import { runMail } from "../lib/mail.js";
+import { research } from "../lib/research.js";
 import { buildSystem, pick, MAIL_INTRO, MAIL_TEST_INTRO, WELCOME, MODE_MSG, CAR_FOOTER, carReady } from "../lib/persona.js";
-import { getVal, setVal, persistent } from "../lib/store.js";
+import { getVal, setVal, setNx, persistent } from "../lib/store.js";
 
 export const maxDuration = 60;
 
@@ -10,6 +11,7 @@ const MAX_TELEGRAM_TEXT = 3900;
 const BTN = {
   help: "💬 Помощь",
   car: "🔧 Ремонт авто",
+  research: "🔎 Проверить по источникам",
   mail: "📧 Почта",
   mailTest: "📧 Почта (тест)",
 };
@@ -17,6 +19,7 @@ const BTN = {
 const KEYBOARD = {
   keyboard: [
     [{ text: BTN.help }, { text: BTN.car }],
+    [{ text: BTN.research }],
     [{ text: BTN.mail }, { text: BTN.mailTest }],
   ],
   resize_keyboard: true,
@@ -115,6 +118,12 @@ export async function POST(request) {
   // Список обязателен: без него бот не отвечает никому (агент работает с твоей почтой).
   if (!allowList.includes(userId)) return json(200, { ok: true, ignored: true });
 
+  // Telegram может прислать то же обновление повторно, если ответ шёл долго. Второй раз не обрабатываем.
+  if (update.update_id !== undefined) {
+    const fresh = await setNx(`upd:${update.update_id}`, "1", 600);
+    if (!fresh) return json(200, { ok: true, duplicate: true });
+  }
+
   try {
     const text = (message.text || "").trim();
     if (!text) {
@@ -133,6 +142,9 @@ export async function POST(request) {
       await setMode(chatId, "car");
       const savedCar = await getVal(carKey(chatId));
       await sendText(chatId, savedCar ? carReady(savedCar) : MODE_MSG.car);
+    } else if (text === BTN.research) {
+      await setMode(chatId, "research");
+      await sendText(chatId, MODE_MSG.research);
     } else if (text === BTN.mail || text === BTN.mailTest || cmd === "/mail" || cmd === "/почта") {
       const dry = text === BTN.mailTest || args.some((a) => /^(тест|test|dry)$/i.test(a));
       await sendText(chatId, pick(dry ? MAIL_TEST_INTRO : MAIL_INTRO));
@@ -171,13 +183,19 @@ export async function POST(request) {
     } else {
       // Обычное сообщение: отвечаем в текущем режиме с характером Куруми.
       const mode = (await getVal(modeKey(chatId))) || "help";
-      const car = mode === "car" ? await getVal(carKey(chatId)) : null;
-      const history = await loadHistory(chatId);
-      const reply = await gigaChat(buildSystem(mode, car), composeUser(history, text), 1200);
-      await sendText(chatId, mode === "car" ? `${reply}\n\n${CAR_FOOTER}` : reply);
-      history.push({ r: "u", t: text.slice(0, 800) });
-      history.push({ r: "a", t: String(reply).slice(0, 700) });
-      await saveHistory(chatId, history);
+      if (mode === "research") {
+        await sendText(chatId, "Ищу и проверяю источники. Это займёт до минуты, не дёргай меня.");
+        const savedCar = await getVal(carKey(chatId));
+        await sendText(chatId, await research(text, savedCar || ""));
+      } else {
+        const car = mode === "car" ? await getVal(carKey(chatId)) : null;
+        const history = await loadHistory(chatId);
+        const reply = await gigaChat(buildSystem(mode, car), composeUser(history, text), 1200);
+        await sendText(chatId, mode === "car" ? `${reply}\n\n${CAR_FOOTER}` : reply);
+        history.push({ r: "u", t: text.slice(0, 800) });
+        history.push({ r: "a", t: String(reply).slice(0, 700) });
+        await saveHistory(chatId, history);
+      }
     }
   } catch (error) {
     console.error("Webhook handler error", error);
@@ -193,4 +211,4 @@ export async function POST(request) {
   }
 
   return json(200, { ok: true });
-                     }
+}

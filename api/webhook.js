@@ -1,7 +1,7 @@
 import { gigaChat } from "../lib/gigachat.js";
 import { runMail } from "../lib/mail.js";
 import { research } from "../lib/research.js";
-import { buildSystem, pick, MAIL_INTRO, MAIL_TEST_INTRO, WELCOME, MODE_MSG, CAR_FOOTER, carReady } from "../lib/persona.js";
+import { buildSystem, pick, MAIL_INTRO, MAIL_TEST_INTRO, WELCOME, MODE_MSG } from "../lib/persona.js";
 import { getVal, setVal, setNx, persistent } from "../lib/store.js";
 
 export const maxDuration = 60;
@@ -10,21 +10,25 @@ const MAX_TELEGRAM_TEXT = 3900;
 
 const BTN = {
   help: "💬 Помощь",
-  car: "🔧 Ремонт авто",
-  research: "🔎 Проверить по источникам",
+  research: "🔎 Исследование",
   mail: "📧 Почта",
   mailTest: "📧 Почта (тест)",
 };
 
+// Старые подписи кнопок: у пользователя на телефоне может висеть прежняя клавиатура.
+const LEGACY_RESEARCH = "🔎 Проверить по источникам";
+const LEGACY_CAR = "🔧 Ремонт авто";
+
 const KEYBOARD = {
   keyboard: [
-    [{ text: BTN.help }, { text: BTN.car }],
-    [{ text: BTN.research }],
+    [{ text: BTN.help }, { text: BTN.research }],
     [{ text: BTN.mail }, { text: BTN.mailTest }],
   ],
   resize_keyboard: true,
   is_persistent: true,
 };
+
+const MODES = ["help", "research"];
 
 function json(status, body) {
   return new Response(JSON.stringify(body), {
@@ -51,11 +55,16 @@ async function sendText(chatId, text) {
   }
 }
 
-/* ---------- Режим, история, данные об авто ---------- */
+/* ---------- Режим и история ---------- */
 
 const modeKey = (id) => `mode:${id}`;
 const histKey = (id) => `hist:${id}`;
-const carKey = (id) => `car:${id}`;
+
+// Если в хранилище остался удалённый режим (например, «car»), считаем это обычной помощью.
+async function getMode(chatId) {
+  const m = await getVal(modeKey(chatId));
+  return MODES.includes(m) ? m : "help";
+}
 
 async function loadHistory(chatId) {
   try {
@@ -81,6 +90,38 @@ function composeUser(history, text) {
     .map((h) => `${h.r === "u" ? "Пользователь" : "Куруми"}: ${h.t}`)
     .join("\n");
   return `Предыдущий диалог:\n${log}\n\nНовое сообщение пользователя:\n${text}`;
+}
+
+/* ---------- Адаптер GigaChat для research.js ---------- */
+
+// Не больше 3 одновременных запросов к GigaChat, чтобы не ловить 429.
+function limiter(max) {
+  let active = 0;
+  const queue = [];
+  const next = () => {
+    if (active >= max || !queue.length) return;
+    active++;
+    const { fn, resolve, reject } = queue.shift();
+    fn().then(resolve, reject).finally(() => {
+      active--;
+      next();
+    });
+  };
+  return (fn) =>
+    new Promise((resolve, reject) => {
+      queue.push({ fn, resolve, reject });
+      next();
+    });
+}
+
+// research.js вызывает llm(messages), а gigaChat принимает (system, user, maxTokens).
+function makeLlm() {
+  const limit = limiter(3);
+  return (messages) => {
+    const system = messages.find((m) => m.role === "system")?.content || "";
+    const user = messages.filter((m) => m.role === "user").map((m) => m.content).join("\n\n");
+    return limit(() => gigaChat(system, user, 1800));
+  };
 }
 
 /* ---------- Вебхук ---------- */
@@ -138,13 +179,12 @@ export async function POST(request) {
     if (text === BTN.help) {
       await setMode(chatId, "help");
       await sendText(chatId, MODE_MSG.help);
-    } else if (text === BTN.car) {
-      await setMode(chatId, "car");
-      const savedCar = await getVal(carKey(chatId));
-      await sendText(chatId, savedCar ? carReady(savedCar) : MODE_MSG.car);
-    } else if (text === BTN.research) {
+    } else if (text === BTN.research || text === LEGACY_RESEARCH) {
       await setMode(chatId, "research");
       await sendText(chatId, MODE_MSG.research);
+    } else if (text === LEGACY_CAR) {
+      // Режима ремонта больше нет; это сообщение заодно обновит клавиатуру.
+      await sendText(chatId, WELCOME);
     } else if (text === BTN.mail || text === BTN.mailTest || cmd === "/mail" || cmd === "/почта") {
       const dry = text === BTN.mailTest || args.some((a) => /^(тест|test|dry)$/i.test(a));
       await sendText(chatId, pick(dry ? MAIL_TEST_INTRO : MAIL_INTRO));
@@ -154,27 +194,13 @@ export async function POST(request) {
       await sendText(chatId, WELCOME);
     } else if (cmd === "/status") {
       const live = process.env.MAIL_LIVE === "1";
-      const mode = (await getVal(modeKey(chatId))) || "help";
+      const mode = await getMode(chatId);
       await sendText(
         chatId,
         `Webhook работает. Режим: ${mode}. Почта: ${live ? "боевой режим" : "тест (MAIL_LIVE не включён)"}. Память: ${
           persistent ? "Upstash" : "только в оперативке (может сбрасываться)"
         }.`
       );
-    } else if (cmd === "/авто") {
-      const car = args.join(" ").trim().slice(0, 300);
-      if (!car) {
-        const saved = await getVal(carKey(chatId));
-        await sendText(
-          chatId,
-          saved
-            ? `Сейчас у меня записано: ${saved}\nЧтобы поменять, напиши /авто и новые данные.`
-            : "Ничего не записано. Напиши /авто и модель, год, двигатель, а лучше и VIN."
-        );
-      } else {
-        await setVal(carKey(chatId), car, 60 * 60 * 24 * 365);
-        await sendText(chatId, `Записала: ${car}. Теперь буду подбирать под эту машину.`);
-      }
     } else if (cmd === "/сброс") {
       await setVal(histKey(chatId), "[]", 60 * 60 * 24 * 3);
       await sendText(chatId, "Диалог сбросила. Начинаем с чистого листа.");
@@ -182,16 +208,14 @@ export async function POST(request) {
       await sendText(chatId, "Не знаю такой команды. Список: /help");
     } else {
       // Обычное сообщение: отвечаем в текущем режиме с характером Куруми.
-      const mode = (await getVal(modeKey(chatId))) || "help";
+      const mode = await getMode(chatId);
       if (mode === "research") {
         await sendText(chatId, "Ищу и проверяю источники. Это займёт до минуты, не дёргай меня.");
-        const savedCar = await getVal(carKey(chatId));
-        await sendText(chatId, await research(text, savedCar || ""));
+        await sendText(chatId, await research(text, makeLlm()));
       } else {
-        const car = mode === "car" ? await getVal(carKey(chatId)) : null;
         const history = await loadHistory(chatId);
-        const reply = await gigaChat(buildSystem(mode, car), composeUser(history, text), 1200);
-        await sendText(chatId, mode === "car" ? `${reply}\n\n${CAR_FOOTER}` : reply);
+        const reply = await gigaChat(buildSystem(mode), composeUser(history, text), 1200);
+        await sendText(chatId, reply);
         history.push({ r: "u", t: text.slice(0, 800) });
         history.push({ r: "a", t: String(reply).slice(0, 700) });
         await saveHistory(chatId, history);

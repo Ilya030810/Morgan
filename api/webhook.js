@@ -356,14 +356,6 @@ ${assignment}
   reply = imageResult.replace(/^ТИП:\s*ДРУГОЕ\s*/i, "").trim();
 }
 
-      export async function gigaChatImage(
-  system,
-  user,
-  image,
-  maxTokens = 1200,
-  options = {}
-) {
-
       await sendText(chatId, reply);
 
       history.push({

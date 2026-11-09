@@ -237,10 +237,12 @@ export function GET() {
 export async function POST(request) {
   const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
 
-  if (
-    secret &&
-    request.headers.get("x-telegram-bot-api-secret-token") !== secret
-  ) {
+  if (!secret) {
+    console.error("Missing TELEGRAM_WEBHOOK_SECRET");
+    return json(503, { ok: false, error: "Webhook unavailable" });
+  }
+
+  if (request.headers.get("x-telegram-bot-api-secret-token") !== secret) {
     return json(403, { ok: false, error: "Forbidden" });
   }
 
